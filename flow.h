@@ -9,7 +9,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <Block.h>
 
 typedef struct {
     void *data;
@@ -17,123 +16,161 @@ typedef struct {
     size_t elem_size;
 } Iterator;
 
+/**
+ * @brief Create an iterator from a static array.
+ * @param arr The static array to convert.
+ * @return An Iterator structure representing the array.
+ */
 #define to_iter(arr) \
     ((Iterator){ .data = (arr), .len = sizeof(arr)/sizeof(*(arr)), .elem_size = sizeof(*(arr)) })
 
-// iter_map: map each element with an expression (in_type, x, out_type, expr)
-#define iter_map(iter, in_type, x, out_type, expr) \
+/**
+ * @brief Map each element of an iterator to a new value.
+ * @param iter The input iterator.
+ * @param in_type The type of each input element.
+ * @param in_var The variable name for each input element.
+ * @param out_type The type of each output element.
+ * @param out_expr The expression to compute the output value.
+ * @return Iterator of mapped values.
+ */
+#define iter_map(iter, in_type, in_var, out_type, out_expr) \
     ({ \
-        Iterator _it = (iter); \
-        out_type *_out = malloc(_it.len * sizeof(out_type)); \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            in_type x = ((in_type*)_it.data)[_i]; \
-            _out[_i] = (expr); \
+        Iterator input = (iter); \
+        out_type *output = malloc(input.len * sizeof(out_type)); \
+        for (size_t index = 0; index < input.len; ++index) { \
+            in_type in_var = ((in_type*)input.data)[index]; \
+            output[index] = (out_expr); \
         } \
-        (Iterator){ .data = _out, .len = _it.len, .elem_size = sizeof(out_type) }; \
+        (Iterator){ .data = output, .len = input.len, .elem_size = sizeof(out_type) }; \
     })
 
-// iter_then: run an arbitrary statement/expression in the middle of a pipeline, returns the iterator unchanged
-#define iter_then(iter, expr) \
+/**
+ * @brief Filter elements of an iterator by a predicate.
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param var The variable name for each element.
+ * @param predicate The predicate expression (returns true to keep).
+ * @return Iterator of filtered values.
+ */
+#define iter_filter(iter, type, var, predicate) \
     ({ \
-        Iterator _it = (iter); \
-        expr; \
-        _it; \
-    })
-
-// iter_slice: return a subrange [start, end) of the iterator
-#define iter_slice(iter, start, end) \
-    ({ \
-        Iterator _it = (iter); \
-        size_t _s = (start) < _it.len ? (start) : _it.len; \
-        size_t _e = (end) < _it.len ? (end) : _it.len; \
-        (Iterator){ .data = (char*)_it.data + _s * _it.elem_size, .len = (_e > _s ? _e - _s : 0), .elem_size = _it.elem_size }; \
-    })
-
-// iter_filter: filter elements by predicate (type, x is the element)
-#define iter_filter(iter, type, x, pred) \
-    ({ \
-        Iterator _it = (iter); \
-        type *_out = malloc(_it.len * sizeof(type)); \
-        size_t _count = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
-            if (pred) _out[_count++] = x; \
+        Iterator input = (iter); \
+        type *output = malloc(input.len * sizeof(type)); \
+        size_t count = 0; \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type var = ((type*)input.data)[index]; \
+            if (predicate) output[count++] = var; \
         } \
-        (Iterator){ .data = _out, .len = _count, .elem_size = sizeof(type) }; \
+        (Iterator){ .data = output, .len = count, .elem_size = sizeof(type) }; \
     })
 
-// iter_sum: sum all elements (assumes numeric type)
+/**
+ * @brief Reduce (sum) all elements of an iterator.
+ * @param iter The input iterator.
+ * @param type The type of each element (must be numeric).
+ * @return The sum of all elements.
+ */
 #define iter_sum(iter, type) \
     ({ \
-        Iterator _it = (iter); \
-        type _sum = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) _sum += ((type*)_it.data)[_i]; \
-        _sum; \
+        Iterator input = (iter); \
+        type sum = 0; \
+        for (size_t index = 0; index < input.len; ++index) sum += ((type*)input.data)[index]; \
+        sum; \
     })
 
-// iter_for: perform an operation on each element (type, x is the element), return the iterator
-#define iter_for(iter, type, x, op) \
+/**
+ * @brief Apply an operation to each element of an iterator (side effects only).
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param var The variable name for each element.
+ * @param op The operation to perform (e.g., printf).
+ * @return The original iterator (unchanged).
+ */
+#define iter_for(iter, type, var, op) \
     ({ \
-        Iterator _it = (iter); \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
+        Iterator input = (iter); \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type var = ((type*)input.data)[index]; \
             op; \
         } \
-        _it; \
+        input; \
     })
 
-// iter_take: take the first n elements from an iterator
+/**
+ * @brief Take the first n elements from an iterator.
+ * @param iter The input iterator.
+ * @param n The number of elements to take.
+ * @return Iterator of the first n elements.
+ */
 #define iter_take(iter, n) \
     ({ \
-        Iterator _it = (iter); \
-        size_t _n = (n) < _it.len ? (n) : _it.len; \
-        (Iterator){ .data = _it.data, .len = _n, .elem_size = _it.elem_size }; \
+        Iterator input = (iter); \
+        size_t count = (n) < input.len ? (n) : input.len; \
+        (Iterator){ .data = input.data, .len = count, .elem_size = input.elem_size }; \
     })
 
-// iter_drop: drop the first n elements from an iterator
+/**
+ * @brief Drop the first n elements from an iterator.
+ * @param iter The input iterator.
+ * @param n The number of elements to drop.
+ * @return Iterator of the remaining elements.
+ */
 #define iter_drop(iter, n) \
     ({ \
-        Iterator _it = (iter); \
-        size_t _n = (n) < _it.len ? (n) : _it.len; \
-        (Iterator){ .data = (char*)_it.data + _n * _it.elem_size, .len = _it.len - _n, .elem_size = _it.elem_size }; \
+        Iterator input = (iter); \
+        size_t count = (n) < input.len ? (n) : input.len; \
+        (Iterator){ .data = (char*)input.data + count * input.elem_size, .len = input.len - count, .elem_size = input.elem_size }; \
     })
 
-// iter_reverse: return a new iterator with elements in reverse order
+/**
+ * @brief Return a new iterator with elements in reverse order.
+ * @param iter The input iterator.
+ * @return Iterator with elements in reverse order.
+ */
 #define iter_reverse(iter) \
     ({ \
-        Iterator _it = (iter); \
-        void* _out = malloc(_it.len * _it.elem_size); \
-        for (size_t _i = 0; _i < _it.len; ++_i) \
-            memcpy((char*)_out + _i * _it.elem_size, \
-                   (char*)_it.data + (_it.len - 1 - _i) * _it.elem_size, \
-                   _it.elem_size); \
-        (Iterator){ .data = _out, .len = _it.len, .elem_size = _it.elem_size }; \
+        Iterator input = (iter); \
+        void* output = malloc(input.len * input.elem_size); \
+        for (size_t index = 0; index < input.len; ++index) \
+            memcpy((char*)output + index * input.elem_size, \
+                   (char*)input.data + (input.len - 1 - index) * input.elem_size, \
+                   input.elem_size); \
+        (Iterator){ .data = output, .len = input.len, .elem_size = input.elem_size }; \
     })
 
-// iter_unique: return only the first occurrence of each element (memcmp version)
+/**
+ * @brief Internal pointer-based version of iter_pad (do not use directly).
+ * @param iter The input iterator.
+ * @return Iterator with unique elements (first occurrence kept).
+ */
 #define iter_unique(iter) \
     ({ \
-        Iterator _it = (iter); \
-        void* _out = malloc(_it.len * _it.elem_size); \
-        size_t _count = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            int _found = 0; \
-            for (size_t _j = 0; _j < _count; ++_j) \
-                if (memcmp((char*)_it.data + _i * _it.elem_size, (char*)_out + _j * _it.elem_size, _it.elem_size) == 0) { _found = 1; break; } \
-            if (!_found) \
-                memcpy((char*)_out + _count++ * _it.elem_size, (char*)_it.data + _i * _it.elem_size, _it.elem_size); \
+        Iterator input = (iter); \
+        void* output = malloc(input.len * input.elem_size); \
+        size_t count = 0; \
+        for (size_t i = 0; i < input.len; ++i) { \
+            int found = 0; \
+            for (size_t j = 0; j < count; ++j) \
+                if (memcmp((char*)input.data + i * input.elem_size, (char*)output + j * input.elem_size, input.elem_size) == 0) { found = 1; break; } \
+            if (!found) \
+                memcpy((char*)output + count++ * input.elem_size, (char*)input.data + i * input.elem_size, input.elem_size); \
         } \
-        (Iterator){ .data = _out, .len = _count, .elem_size = _it.elem_size }; \
+        (Iterator){ .data = output, .len = count, .elem_size = input.elem_size }; \
     })
 
-// iter_concat: concatenate two iterators of the same type
+/**
+ * @brief Concatenate two iterators of the same type.
+ * @param iter1 The first input iterator.
+ * @param iter2 The second input iterator.
+ * @return Iterator with all elements of iter1 followed by iter2.
+ */
 #define iter_concat(iter1, iter2) \
     ({ \
-        Iterator _a = (iter1), _b = (iter2); \
-        void* _out = malloc((_a.len + _b.len) * _a.elem_size); \
-        memcpy(_out, _a.data, _a.len * _a.elem_size); \
-        memcpy((char*)_out + _a.len * _a.elem_size, _b.data, _b.len * _b.elem_size); \
-        (Iterator){ .data = _out, .len = _a.len + _b.len, .elem_size = _a.elem_size }; \
+        Iterator a = (iter1), b = (iter2); \
+        void* output = malloc((a.len + b.len) * a.elem_size); \
+        memcpy(output, a.data, a.len * a.elem_size); \
+        memcpy((char*)output + a.len * a.elem_size, b.data, b.len * b.elem_size); \
+        (Iterator){ .data = output, .len = a.len + b.len, .elem_size = a.elem_size }; \
     })
 
 // Internal, pointer-based version (do not use directly)
@@ -149,52 +186,89 @@ typedef struct {
             memcpy((char*)_out + _i * _it.elem_size, (padptr), _it.elem_size); \
         (Iterator){ .data = _out, .len = _n, .elem_size = _it.elem_size }; \
     })
-// User-facing, value-based version (for scalars)
+
+/**
+ * @brief Pad an iterator to a new length with a given value.
+ * @param iter The input iterator.
+ * @param newlen The new length of the output iterator.
+ * @param padval The value to use for padding.
+ * @return Iterator padded to newlen with padval.
+ */
 #define iter_pad(iter, newlen, padval) \
     ({ \
-        __auto_type _padval = (padval); \
-        _iter_pad_ptr((iter), (newlen), &_padval); \
+        __auto_type pad_value = (padval); \
+        _iter_pad_ptr((iter), (newlen), &pad_value); \
     })
 
-// iter_repeat: repeat the iterator's elements a given number of times
+/**
+ * @brief Repeat the iterator's elements a given number of times.
+ * @param iter The input iterator.
+ * @param times The number of times to repeat.
+ * @return Iterator with repeated elements.
+ */
 #define iter_repeat(iter, times) \
     ({ \
-        Iterator _it = (iter); \
-        size_t _t = (times); \
-        void* _out = malloc(_it.len * _t * _it.elem_size); \
-        for (size_t _i = 0; _i < _t; ++_i) \
-            memcpy((char*)_out + _i * _it.len * _it.elem_size, _it.data, _it.len * _it.elem_size); \
-        (Iterator){ .data = _out, .len = _it.len * _t, .elem_size = _it.elem_size }; \
+        Iterator input = (iter); \
+        size_t repeat_count = (times); \
+        void* output = malloc(input.len * repeat_count * input.elem_size); \
+        for (size_t i = 0; i < repeat_count; ++i) \
+            memcpy((char*)output + i * input.len * input.elem_size, input.data, input.len * input.elem_size); \
+        (Iterator){ .data = output, .len = input.len * repeat_count, .elem_size = input.elem_size }; \
     })
 
-// iter_foldl: left fold (accumulate from left to right)
-// Usage: iter_foldl(iter, type, acc_type, acc, x, init, expr)
-#define iter_foldl(iter, type, acc_type, acc, x, init, expr) \
+/**
+ * @brief Left fold (accumulate from left to right).
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param acc_type The type of the accumulator.
+ * @param acc The accumulator variable.
+ * @param in_var The variable name for each input element.
+ * @param init The initial value of the accumulator.
+ * @param expr The expression to update the accumulator.
+ * @return The final value of the accumulator.
+ */
+#define iter_foldl(iter, type, acc_type, acc, in_var, init, expr) \
     ({ \
-        Iterator _it = (iter); \
+        Iterator input = (iter); \
         acc_type acc = (init); \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type in_var = ((type*)input.data)[index]; \
             acc = (expr); \
         } \
         acc; \
     })
 
-// iter_foldr: right fold (accumulate from right to left)
-// Usage: iter_foldr(iter, type, acc_type, acc, x, init, expr)
-#define iter_foldr(iter, type, acc_type, acc, x, init, expr) \
+/**
+ * @brief Right fold (accumulate from right to left).
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param acc_type The type of the accumulator.
+ * @param acc The accumulator variable.
+ * @param in_var The variable name for each input element.
+ * @param init The initial value of the accumulator.
+ * @param expr The expression to update the accumulator.
+ * @return The final value of the accumulator.
+ */
+#define iter_foldr(iter, type, acc_type, acc, in_var, init, expr) \
     ({ \
-        Iterator _it = (iter); \
+        Iterator input = (iter); \
         acc_type acc = (init); \
-        for (ptrdiff_t _i = (ptrdiff_t)_it.len - 1; _i >= 0; --_i) { \
-            type x = ((type*)_it.data)[_i]; \
+        for (ptrdiff_t index = (ptrdiff_t)input.len - 1; index >= 0; --index) { \
+            type in_var = ((type*)input.data)[index]; \
             acc = (expr); \
         } \
         acc; \
     })
     
-// iter_zip: zip two iterators into an iterator of pairtype (fields .a and .b)
-// Usage: iter_zip(it1, it1type, it2, it2type, pairtype)
+/**
+ * @brief Zip two iterators into an iterator of pairtype (fields .a and .b).
+ * @param it1type The type of elements in the first iterator.
+ * @param it1 The first input iterator.
+ * @param it2type The type of elements in the second iterator.
+ * @param it2 The second input iterator.
+ * @param pairtype The type of the resulting pairs.
+ * @return Iterator of paired elements.
+ */
 #define iter_zip(it1type, it1, it2type, it2, pairtype) \
     ({ \
         Iterator _a = (it1), _b = (it2); \
@@ -206,90 +280,146 @@ typedef struct {
         (Iterator){ .data = _out, .len = _n, .elem_size = sizeof(pairtype) }; \
     })
 
-// iter_flatten: flatten an iterator of iterators (assumes all inner iterators have same type)
+/**
+ * @brief Flatten an iterator of iterators (all inner iterators must have the same element type).
+ * @param iter The input iterator of iterators.
+ * @param itertype The type of each inner iterator.
+ * @param elemtype The type of each element in the inner iterators.
+ * @return Iterator of all elements, flattened.
+ */
 #define iter_flatten(iter, itertype, elemtype) \
     ({ \
-        Iterator _it = (iter); \
-        size_t _total = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            itertype inner = ((itertype*)_it.data)[_i]; \
-            _total += inner.len; \
+        Iterator input = (iter); \
+        size_t total = 0; \
+        for (size_t i = 0; i < input.len; ++i) { \
+            itertype inner = ((itertype*)input.data)[i]; \
+            total += inner.len; \
         } \
-        elemtype* _out = malloc(_total * sizeof(elemtype)); \
-        size_t _pos = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            itertype inner = ((itertype*)_it.data)[_i]; \
-            for (size_t _j = 0; _j < inner.len; ++_j) \
-                _out[_pos++] = ((elemtype*)inner.data)[_j]; \
+        elemtype* output = malloc(total * sizeof(elemtype)); \
+        size_t pos = 0; \
+        for (size_t i = 0; i < input.len; ++i) { \
+            itertype inner = ((itertype*)input.data)[i]; \
+            for (size_t j = 0; j < inner.len; ++j) \
+                output[pos++] = ((elemtype*)inner.data)[j]; \
         } \
-        (Iterator){ .data = _out, .len = _total, .elem_size = sizeof(elemtype) }; \
+        (Iterator){ .data = output, .len = total, .elem_size = sizeof(elemtype) }; \
     })
 
-// iter_partition: split an iterator into two by predicate (returns a struct with .yes and .no fields)
+/**
+ * @brief Split an iterator into two by predicate (returns a struct with .yes and .no fields).
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param var The variable name for each element.
+ * @param predicate The predicate expression (returns true for yes branch).
+ * @return Struct containing .yes and .no iterators.
+ */
 typedef struct { Iterator yes, no; } IteratorPartitionResult;
-#define iter_partition(iter, type, x, pred) \
+#define iter_partition(iter, type, var, predicate) \
     ({ \
-        Iterator _it = (iter); \
-        type* _yes = malloc(_it.len * sizeof(type)); \
-        type* _no = malloc(_it.len * sizeof(type)); \
-        size_t _y = 0, _n = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
-            if (pred) _yes[_y++] = x; \
-            else _no[_n++] = x; \
+        Iterator input = (iter); \
+        type* yes_output = malloc(input.len * sizeof(type)); \
+        type* no_output = malloc(input.len * sizeof(type)); \
+        size_t yes_count = 0, no_count = 0; \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type var = ((type*)input.data)[index]; \
+            if (predicate) yes_output[yes_count++] = var; \
+            else no_output[no_count++] = var; \
         } \
         (IteratorPartitionResult){ \
-            .yes = (Iterator){ .data = _yes, .len = _y, .elem_size = sizeof(type) }, \
-            .no = (Iterator){ .data = _no, .len = _n, .elem_size = sizeof(type) } \
+            .yes = (Iterator){ .data = yes_output, .len = yes_count, .elem_size = sizeof(type) }, \
+            .no = (Iterator){ .data = no_output, .len = no_count, .elem_size = sizeof(type) } \
         }; \
     })
 
-// iter_scan: prefix sum (or any scan operation), simplified
-#define iter_scan(iter, type, x, init, expr) \
+/**
+ * @brief Prefix sum (or any scan operation), simplified.
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param var The variable name for each element.
+ * @param init The initial value.
+ * @param expr The expression to update the value.
+ * @return Iterator of scanned values.
+ */
+#define iter_scan(iter, type, var, init, expr) \
     ({ \
-        Iterator _it = (iter); \
+        Iterator input = (iter); \
         type acc = (init); \
-        type* _out = malloc(_it.len * sizeof(type)); \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
+        type* output = malloc(input.len * sizeof(type)); \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type var = ((type*)input.data)[index]; \
             acc = (expr); \
-            _out[_i] = acc; \
+            output[index] = acc; \
         } \
-        (Iterator){ .data = _out, .len = _it.len, .elem_size = sizeof(type) }; \
+        (Iterator){ .data = output, .len = input.len, .elem_size = sizeof(type) }; \
     })
 
-// iter_any: returns 1 if any element matches predicate
-#define iter_any(iter, type, x, pred) \
+/**
+ * @brief Check if any element matches predicate.
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param var The variable name for each element.
+ * @param predicate The predicate expression (returns true for a match).
+ * @return 1 if any element matches, 0 otherwise.
+ */
+#define iter_any(iter, type, var, predicate) \
     ({ \
-        Iterator _it = (iter); \
-        int _found = 0; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
-            if (pred) { _found = 1; break; } \
+        Iterator input = (iter); \
+        int found = 0; \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type var = ((type*)input.data)[index]; \
+            if (predicate) { found = 1; break; } \
         } \
-        _found; \
+        found; \
     })
 
-// iter_all: returns 1 if all elements match predicate
-#define iter_all(iter, type, x, pred) \
+/**
+ * @brief Check if all elements match predicate.
+ * @param iter The input iterator.
+ * @param type The type of each element.
+ * @param var The variable name for each element.
+ * @param predicate The predicate expression (returns true for a match).
+ * @return 1 if all elements match, 0 otherwise.
+ */
+#define iter_all(iter, type, var, predicate) \
     ({ \
-        Iterator _it = (iter); \
-        int _all = 1; \
-        for (size_t _i = 0; _i < _it.len; ++_i) { \
-            type x = ((type*)_it.data)[_i]; \
-            if (!(pred)) { _all = 0; break; } \
+        Iterator input = (iter); \
+        int all = 1; \
+        for (size_t index = 0; index < input.len; ++index) { \
+            type var = ((type*)input.data)[index]; \
+            if (!(predicate)) { all = 0; break; } \
         } \
-        _all; \
+        all; \
     })
 
-// iter_range: create an iterator over a range [start, end) (step=1)
+/**
+ * @brief Create an iterator over a range [start, end) (step=1).
+ * @param type The type of each element.
+ * @param start The starting value (inclusive).
+ * @param end The ending value (exclusive).
+ * @return Iterator over the range.
+ */
 #define iter_range(type, start, end) \
     ({ \
         type _s = (start), _e = (end); \
-        size_t _n = (_e > _s) ? (_e - _s) : 0; \
-        type* _out = malloc(_n * sizeof(type)); \
-        for (size_t _i = 0; _i < _n; ++_i) _out[_i] = _s + (type)_i; \
-        (Iterator){ .data = _out, .len = _n, .elem_size = sizeof(type) }; \
+        size_t count = (_e > _s) ? (_e - _s) : 0; \
+        type* output = malloc(count * sizeof(type)); \
+        for (size_t index = 0; index < count; ++index) output[index] = _s + (type)index; \
+        (Iterator){ .data = output, .len = count, .elem_size = sizeof(type) }; \
+    })
+
+/**
+ * @brief Return a subrange [start, end) of the iterator.
+ * @param iter The input iterator.
+ * @param start The starting index (inclusive).
+ * @param end The ending index (exclusive).
+ * @return Iterator over the specified subrange.
+ */
+#define iter_slice(iter, start, end) \
+    ({ \
+        Iterator input = (iter); \
+        size_t s = (start) < input.len ? (start) : input.len; \
+        size_t e = (end) < input.len ? (end) : input.len; \
+        (Iterator){ .data = (char*)input.data + s * input.elem_size, .len = (e > s ? e - s : 0), .elem_size = input.elem_size }; \
     })
 
 // Pipe macros (as before)
@@ -340,6 +470,7 @@ typedef struct { Iterator yes, no; } IteratorPartitionResult;
 
 
 #ifdef __clang__
+#include <Block.h>
 // Type-safe, ergonomic curry macro: curry(f, T1, T2, ..., TN)
 // Usage: curry(add5, float, float, float, float, float)
 #define _CURRY_BLOCK_TYPED_1(f, T1) \

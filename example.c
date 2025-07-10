@@ -174,9 +174,9 @@ int main(int argc, char *argv[]) {
 
     // iter_partition: even/odd split
     IteratorPartitionResult part = iter_partition(it3, int, x, x % 3 == 0);
-    printf("partition even: ");
+    printf("partition (x mod 3 == 0): ");
     iter_for(part.yes, int, x, printf("%d ", x));
-    printf(" | odd: ");
+    printf(" | (x mod 3 != 0): ");
     iter_for(part.no, int, x, printf("%d ", x));
     printf("\n---\n");
 
@@ -200,11 +200,13 @@ int main(int argc, char *argv[]) {
     iter_for(rng, int, x, printf("%d ", x));
     printf("\n---\n");
 
+    #ifdef __clang__
     // Partial application: manually curry add5 to get a function of 4 args
     __auto_type add5_curried = curry(add5, float, float, float, float, float);
     __auto_type add13 = add5_curried(10)(1)(2); // This line is for demonstration
     float result_partial = add13(4)(5);
     printf("Curried add5 (partial, a1=10, curry): %f\n", result_partial);
+    #endif
 
     return 0;
 }
